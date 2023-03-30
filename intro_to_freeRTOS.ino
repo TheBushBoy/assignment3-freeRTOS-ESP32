@@ -3,8 +3,8 @@ const byte T1_Pin = 0;
 const byte T2_Pin = 19;
 const byte T3_Pin = 18;
 const byte T4_Pin = 3;
-const byte btn_Pin = 20;
-const byte led_Pin = 21;
+const byte btn_Pin = 6;
+const byte led_Pin = 7;
 
 // Maximum values
 const unsigned int maxValue = 3300;
@@ -103,25 +103,24 @@ void task5() {
 }
 
 void task6() {
-  btn = digitalRead(pinBtn2);
+  btn = digitalRead(btn_Pin);
   
-  // When button is pressed, we turn on the led
+  // oldBtn is used to prevent the button from bouncing
   if(btn && !oldBtn) { 
     oldBtn = 1;
     pressed = 1;
   }
-  // If the waveform is finished, we change the state
-  // if the button have been pressed
+  // When button is pressed, we change the state
   if(pressed) {
-    state = (state1 + 1) % 2;
+    state = (state + 1) % 2;
     pressed = 0;
-    // To prevent the conditions of the first pulse to be false
-    previousMicros = micros();
   }
   else if(!btn && oldBtn) {
     oldBtn = 0;
   }
+}
 
+void task7() {
   if(state) {
     digitalWrite(led_Pin, HIGH);
   }
@@ -130,4 +129,7 @@ void task6() {
   }
 }
 
-void loop() {}
+void loop() {
+  task6();
+  task7();
+}
