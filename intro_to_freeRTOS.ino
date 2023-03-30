@@ -21,10 +21,13 @@ unsigned int avg = 0;
 unsigned int values[4];
 
 // Button parameters for task6
-bool state = 1;
 unsigned short btn = LOW;
 bool oldBtn = 0;
 bool pressed = 0;
+
+// Queue to give the order to turn on
+// or turn off the led by task 5 to task 6
+xQueueHandle queue = 0;
 
 void setup() {
   Serial.begin(9600);
@@ -38,13 +41,16 @@ void setup() {
   pinMode(led_Pin, OUTPUT);
 
   // Task creation
-  xTaskCreate(&task1, "Task 1", 4096, NULL, 1, NULL);
-  xTaskCreate(&task2, "Task 2", 4096, NULL, 1, NULL);
-  xTaskCreate(&task3, "Task 3", 4096, NULL, 1, NULL);
-  xTaskCreate(&task4, "Task 4", 4096, NULL, 1, NULL);
-  xTaskCreate(&task5, "Task 5", 4096, NULL, 1, NULL);
-  xTaskCreate(&task6, "Task 6", 4096, NULL, 1, NULL);
-  xTaskCreate(&task7, "Task 7", 4096, NULL, 1, NULL);
+  xTaskCreate(&task1, "Task 1", 2048, NULL, 1, NULL);
+  xTaskCreate(&task2, "Task 2", 2048, NULL, 1, NULL);
+  xTaskCreate(&task3, "Task 3", 2048, NULL, 1, NULL);
+  xTaskCreate(&task4, "Task 4", 2048, NULL, 1, NULL);
+  xTaskCreate(&task5, "Task 5", 2048, NULL, 1, NULL);
+  xTaskCreate(&task6, "Task 6", 2048, NULL, 1, NULL);
+  xTaskCreate(&task7, "Task 7", 2048, NULL, 1, NULL);
+
+  // Queue creation
+  queue = xQueueCreate(3, sizeof(bool));
 }
 
 void task1(void*ignore) {
@@ -67,28 +73,32 @@ void task1(void*ignore) {
 }
 
 void task2(void*ignore) {
+  unsigned int pulseTime;
+
   for(;;){
     // Getting the duration of a pulse, multiplied by 2 to get the period
-    unsigned int pulseTime = pulseIn(T2_Pin, HIGH, 2500);
+    pulseTime = pulseIn(T2_Pin, HIGH, 2500);
     freq1 = (pulseTime == 0) ? 0 : 1e6/(2*pulseTime);
     vTaskDelay(20 / portTICK_PERIOD_MS);
   }
 }
 
 void task3(void*ignore) {
+  unsigned int pulseTime;
+
   for(;;) {
     // Getting the duration of a pulse, multiplied by 2 to get the period
-    unsigned int pulseTime = pulseIn(T3_Pin, HIGH, 2200);
+    pulseTime = pulseIn(T3_Pin, HIGH, 2200);
     freq2 = (pulseTime == 0) ? 0 : 1e6/(2*pulseTime);
     vTaskDelay(8 / portTICK_PERIOD_MS);
   }
 }
 
 void task4(void*ignore) {
+  unsigned short i;
+  
   for(;;) {
-    unsigned short i;
-
-    // Shifting the former values the storing the new one
+    // Shifting previous values to storing the current one
     values[3] = values[2];
     values[2] = values[1];
     values[1] = values[0];
@@ -112,15 +122,16 @@ void task4(void*ignore) {
 }
 
 void task5(void*ignore) {
+  int freq1Scaled;
+  int freq2Scaled;
+
   for(;;) {
     // Scaling the values beetween 0 and 99
-    int freq1Scaled = (freq1 - freq1Min) / (freqMax - freq1Min) * 99;
-    int freq2Scaled = (freq2 - freq2Min) / (freqMax - freq2Min) * 99;
+    freq1Scaled = (freq1 - freq1Min) / (freqMax - freq1Min) * 99;
+    freq2Scaled = (freq2 - freq2Min) / (freqMax - freq2Min) * 99;
 
-    freq1Scaled = (freq1Scaled < 0) ? 0 : freq1Scaled;
-    freq1Scaled = (freq1Scaled > 99) ? 99 : freq1Scaled;
-    freq2Scaled = (freq2Scaled < 0) ? 0 : freq2Scaled;
-    freq2Scaled = (freq2Scaled > 99) ? 99 : freq2Scaled;
+    freq1Scaled = (freq1Scaled < 0) ? 0 : (freq1Scaled > 99) ? 99 : freq1Scaled;
+    freq2Scaled = (freq2Scaled < 0) ? 0 : (freq2Scaled > 99) ? 99 : freq2Scaled;
 
     Serial.printf("%d,%d\n", freq1Scaled, freq2Scaled);
     vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -128,6 +139,8 @@ void task5(void*ignore) {
 }
 
 void task6(void*ignore) {
+  bool state;
+
   for (;;) {
     btn = digitalRead(btn_Pin);
     
@@ -144,12 +157,20 @@ void task6(void*ignore) {
     else if(!btn && oldBtn) {
       oldBtn = 0;
     }
+    if (!xQueueSend(queue, &state, 4)) {
+      Serial.println("Failed to send to the queue");
+    }
     vTaskDelay(4 / portTICK_PERIOD_MS);
   }
 }
 
 void task7(void*ignore) {
+  bool state;
+
   for(;;) {
+    if (!xQueueReceive(queue, &state, 4)) {
+      Serial.println("Failed to send to the queue");
+    }
     if(state) {
       digitalWrite(led_Pin, HIGH);
     }
