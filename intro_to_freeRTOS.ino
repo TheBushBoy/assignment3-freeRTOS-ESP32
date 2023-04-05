@@ -13,8 +13,13 @@ const unsigned int freq2Min = 500;
 const unsigned int freqMax = 1000;
 
 // Values measured
-float freq1 = 0;
-float freq2 = 0;
+struct gloabalStruct {
+  float freq1;
+  float freq2;
+}
+typedef globalStruct;
+globalStruct valuesMeasured;
+xSemaphoreHandle values_sem = 0; 
 unsigned int avg = 0;
 
 // Store 4 values for the task 4
@@ -51,6 +56,9 @@ void setup() {
 
   // Queue creation
   queue = xQueueCreate(3, sizeof(bool));
+
+  // Semaphore creation
+  values_sem = xSemaphoreCreateMutex();
 }
 
 void task1(void*ignore) {
@@ -78,7 +86,13 @@ void task2(void*ignore) {
   for(;;){
     // Getting the duration of a pulse, multiplied by 2 to get the period
     pulseTime = pulseIn(T2_Pin, HIGH, 2500);
-    freq1 = (pulseTime == 0) ? 0 : 1e6/(2*pulseTime);
+
+    // Waiting 500ms to get the access to the struct
+    if (xSemaphoreTake(values_sem, 500)) {
+      valuesMeasured.freq1 = (pulseTime == 0) ? 0 : 1e6/(2*pulseTime);
+      xSemaphoreGive(values_sem);
+    }
+
     vTaskDelay(20 / portTICK_PERIOD_MS);
   }
 }
@@ -89,7 +103,13 @@ void task3(void*ignore) {
   for(;;) {
     // Getting the duration of a pulse, multiplied by 2 to get the period
     pulseTime = pulseIn(T3_Pin, HIGH, 2200);
-    freq2 = (pulseTime == 0) ? 0 : 1e6/(2*pulseTime);
+
+    // Waiting 500ms to get the access to the struct
+    if (xSemaphoreTake(values_sem, 500)) {
+      valuesMeasured.freq2 = (pulseTime == 0) ? 0 : 1e6/(2*pulseTime);
+      xSemaphoreGive(values_sem);
+    }
+
     vTaskDelay(8 / portTICK_PERIOD_MS);
   }
 }
@@ -127,8 +147,12 @@ void task5(void*ignore) {
 
   for(;;) {
     // Scaling the values beetween 0 and 99
-    freq1Scaled = (freq1 - freq1Min) / (freqMax - freq1Min) * 99;
-    freq2Scaled = (freq2 - freq2Min) / (freqMax - freq2Min) * 99;
+    // Waiting 500ms to get the access to the struct
+    if (xSemaphoreTake(values_sem, 500)) {
+      freq1Scaled = (valuesMeasured.freq1 - freq1Min) / (freqMax - freq1Min) * 99;
+      freq2Scaled = (valuesMeasured.freq2 - freq2Min) / (freqMax - freq2Min) * 99;
+      xSemaphoreGive(values_sem);
+    }
 
     freq1Scaled = (freq1Scaled < 0) ? 0 : (freq1Scaled > 99) ? 99 : freq1Scaled;
     freq2Scaled = (freq2Scaled < 0) ? 0 : (freq2Scaled > 99) ? 99 : freq2Scaled;
