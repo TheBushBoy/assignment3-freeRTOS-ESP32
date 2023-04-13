@@ -19,7 +19,7 @@ struct gloabalStruct {
 }
 typedef globalStruct;
 globalStruct valuesMeasured;
-xSemaphoreHandle values_sem = 0; 
+SemaphoreHandle_t values_sem; 
 unsigned int avg = 0;
 
 // Store 4 values for the task 4
@@ -45,20 +45,20 @@ void setup() {
   pinMode(btn_Pin, INPUT_PULLUP);
   pinMode(led_Pin, OUTPUT);
 
-  // Task creation
-  xTaskCreate(&task1, "Task 1", 2048, NULL, 1, NULL);
-  xTaskCreate(&task2, "Task 2", 2048, NULL, 1, NULL);
-  xTaskCreate(&task3, "Task 3", 2048, NULL, 1, NULL);
-  xTaskCreate(&task4, "Task 4", 2048, NULL, 1, NULL);
-  xTaskCreate(&task5, "Task 5", 2048, NULL, 1, NULL);
-  xTaskCreate(&task6, "Task 6", 2048, NULL, 1, NULL);
-  xTaskCreate(&task7, "Task 7", 2048, NULL, 1, NULL);
-
   // Queue creation
-  queue = xQueueCreate(3, sizeof(bool));
+  queue = xQueueCreate(100, sizeof(bool));
 
   // Semaphore creation
   values_sem = xSemaphoreCreateMutex();
+
+  // Task creation
+  xTaskCreate(&task1, "Task 1", 512, NULL, 1, NULL);
+  xTaskCreate(&task2, "Task 2", 4096, NULL, 4, NULL);
+  xTaskCreate(&task3, "Task 3", 2048, NULL, 4, NULL);
+  xTaskCreate(&task4, "Task 4", 1024, NULL, 2, NULL);
+  xTaskCreate(&task5, "Task 5", 2048, NULL, 3, NULL);
+  xTaskCreate(&task6, "Task 6", 2048, NULL, 3, NULL);
+  xTaskCreate(&task7, "Task 7", 2048, NULL, 3, NULL);
 }
 
 void task1(void*ignore) {
@@ -81,33 +81,38 @@ void task1(void*ignore) {
 }
 
 void task2(void*ignore) {
-  unsigned int pulseTime;
+  unsigned long pulseTime;
 
   for(;;){
-    // Getting the duration of a pulse, multiplied by 2 to get the period
+    // Getting the duration of a pulse
     pulseTime = pulseIn(T2_Pin, HIGH, 2500);
 
-    // Waiting 500ms to get the access to the struct
-    if (xSemaphoreTake(values_sem, 500)) {
+    // Waiting to get the access to the struct
+    if (xSemaphoreTake(values_sem, portMAX_DELAY)) {
       valuesMeasured.freq1 = (pulseTime == 0) ? 0 : 1e6/(2*pulseTime);
       xSemaphoreGive(values_sem);
     }
-
+    else {
+      Serial.println("Failed to access to the struct");
+    }
     vTaskDelay(20 / portTICK_PERIOD_MS);
   }
 }
 
 void task3(void*ignore) {
-  unsigned int pulseTime;
+  unsigned long pulseTime;
 
   for(;;) {
-    // Getting the duration of a pulse, multiplied by 2 to get the period
+    // Getting the duration of a pulse
     pulseTime = pulseIn(T3_Pin, HIGH, 2200);
 
-    // Waiting 500ms to get the access to the struct
-    if (xSemaphoreTake(values_sem, 500)) {
+    // Waiting to get the access to the struct
+    if (xSemaphoreTake(values_sem, portMAX_DELAY)) {
       valuesMeasured.freq2 = (pulseTime == 0) ? 0 : 1e6/(2*pulseTime);
       xSemaphoreGive(values_sem);
+    }
+    else {
+      Serial.println("Failed to access to the struct");
     }
 
     vTaskDelay(8 / portTICK_PERIOD_MS);
@@ -148,10 +153,13 @@ void task5(void*ignore) {
   for(;;) {
     // Scaling the values beetween 0 and 99
     // Waiting 500ms to get the access to the struct
-    if (xSemaphoreTake(values_sem, 500)) {
+    if (xSemaphoreTake(values_sem, portMAX_DELAY)) {
       freq1Scaled = (valuesMeasured.freq1 - freq1Min) / (freqMax - freq1Min) * 99;
       freq2Scaled = (valuesMeasured.freq2 - freq2Min) / (freqMax - freq2Min) * 99;
       xSemaphoreGive(values_sem);
+    }
+    else {
+      Serial.println("Failed to access to the struct");
     }
 
     freq1Scaled = (freq1Scaled < 0) ? 0 : (freq1Scaled > 99) ? 99 : freq1Scaled;
@@ -176,15 +184,15 @@ void task6(void*ignore) {
     // When button is pressed, we change the state
     if(pressed) {
       state = (state + 1) % 2;
+      if (!xQueueSend(queue, &state, 0)) {
+        Serial.println("Failed to send to the queue");
+      }
       pressed = 0;
     }
     else if(!btn && oldBtn) {
       oldBtn = 0;
     }
-    if (!xQueueSend(queue, &state, 4)) {
-      Serial.println("Failed to send to the queue");
-    }
-    vTaskDelay(4 / portTICK_PERIOD_MS);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 }
 
@@ -192,8 +200,8 @@ void task7(void*ignore) {
   bool state;
 
   for(;;) {
-    if (!xQueueReceive(queue, &state, 4)) {
-      Serial.println("Failed to send to the queue");
+    if (!xQueueReceive(queue, &state, 0)) {
+      Serial.println("Failed to get state from the queue");
     }
     if(state) {
       digitalWrite(led_Pin, HIGH);
@@ -201,7 +209,7 @@ void task7(void*ignore) {
     else {
       digitalWrite(led_Pin, LOW);
     }
-    vTaskDelay(4 / portTICK_PERIOD_MS);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 }
 
